@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Research ToDo + Memo</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css">
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js"></script>
+    <style>
+        :root { --main-bg: #f5f5f7; --card-bg: #ffffff; --accent: #007aff; }
+        body { font-family: -apple-system, sans-serif; background: var(--main-bg); margin: 0; padding: 20px; color: #333; }
+        #auth-overlay { position: fixed; top:0; left:0; width:100%; height:100%; background: #fff; display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 100; }
+        #main-content { display: none; max-width: 1000px; margin: 0 auto; }
+        
+        .container { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        @media (max-width: 800px) { .container { grid-template-columns: 1fr; } }
+
+        .list-card { background: var(--card-bg); padding: 15px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); align-self: start; }
+        .todo-item { border-bottom: 1px solid #eee; padding: 10px 0; }
+        .todo-main { display: flex; align-items: flex-start; gap: 10px; }
+        .todo-item.done .task-text { text-decoration: line-through; color: #888; }
+        
+        /* メモエリアのスタイル */
+        .memo-area { margin: 10px 0 0 30px; background: #f9f9f9; padding: 8px; border-radius: 6px; font-size: 0.9em; display: none; border-left: 3px solid var(--accent); }
+        .memo-text { white-space: pre-wrap; margin-bottom: 5px; cursor: pointer; }
+        .memo-edit { width: 100%; box-sizing: border-box; font-family: monospace; padding: 5px; margin-bottom: 5px; }
+
+        .input-group { margin-bottom: 20px; display: flex; gap: 10px; flex-wrap: wrap; background: #fff; padding: 15px; border-radius: 12px; }
+        input, button, textarea { border-radius: 6px; border: 1px solid #ccc; }
+        button { background: var(--accent); color: white; border: none; cursor: pointer; padding: 8px 15px; }
+        button.move-btn { background: #e5e5ea; color: #333; font-size: 0.75em; padding: 4px 8px; }
+        button.memo-toggle { background: none; color: var(--accent); border: none; font-size: 0.8em; padding: 0; text-decoration: underline; }
+    </style>
+</head>
+<body>
+
+    <div id="auth-overlay">
+        <h2>Research Task Manager</h2>
+        <input type="password" id="pass-input" placeholder="パスワードを入力">
+        <button onclick="checkPass()" style="margin-top:10px">ログイン</button>
+    </div>
+
+    <div id="main-content">
+        <h1>Research Tasks</h1>
+        
+        <div class="input-group">
+            <input type="text" id="new-task-title" placeholder="タスク内容 (例: $x_{t+1}$ の更新式)" style="flex:2">
+            <input type="date" id="new-task-date" style="flex:1">
+            <button onclick="addTask()">追加</button>
+        </div>
+
+        <div class="container">
+            <div class="list-card">
+                <h3>📅 スケジュール済み</h3>
+                <div id="scheduled-list"></div>
+            </div>
+            <div class="list-card">
+                <h3>📥 保留（Backlog）</h3>
+                <div id="backlog-list"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function checkPass() {
+            const pass = document.getElementById('pass-input').value;
+            if (pass === "lab123") {
+                document.getElementById('auth-overlay').style.display = 'none';
+                document.getElementById('main-content').style.display = 'block';
+            } else { alert("パスワードが違います"); }
+        }
+
+        // 初期データ（メモ欄を追加）
+        let tasks = JSON.parse(localStorage.getItem('myTodoTasks')) || [
+            { id: 1, title: "サンプルの数式タスク", memo: "ラグランジアン: $L = T - V$", date: "2024-05-30", isBacklog: false, done: false, showMemo: false }
+        ];
+
+        function addTask() {
+            const title = document.getElementById('new-task-title').value;
+            const date = document.getElementById('new-task-date').value;
+            if (!title) return;
+
+            tasks.push({
+                id: Date.now(),
+                title: title,
+                memo: "", // 初期は空
+                date: date,
+                isBacklog: date === "",
+                done: false,
+                showMemo: false
+            });
+            render();
+            document.getElementById('new-task-title').value = "";
+        }
+
+        function toggleTask(id) {
+            const task = tasks.find(t => t.id === id);
+            task.done = !task.done;
+            render();
+        }
+
+        function moveTask(id) {
+            const task = tasks.find(t => t.id === id);
+            task.isBacklog = !task.isBacklog;
+            if (task.isBacklog) task.date = "";
+            render();
+        }
+
+        // メモ表示の切り替え
+        function toggleMemoView(id) {
+            const task = tasks.find(t => t.id === id);
+            task.showMemo = !task.showMemo;
+            render();
+        }
+
+        // メモの保存
+        function saveMemo(id, newText) {
+            const task = tasks.find(t => t.id === id);
+            task.memo = newText;
+            render();
+        }
+
+        function render() {
+            const scheduledDiv = document.getElementById('scheduled-list');
+            const backlogDiv = document.getElementById('backlog-list');
+            scheduledDiv.innerHTML = "";
+            backlogDiv.innerHTML = "";
+
+            tasks.forEach(task => {
+                const item = document.createElement('div');
+                item.className = `todo-item ${task.done ? 'done' : ''}`;
+                item.innerHTML = `
+                    <div class="todo-main">
+                        <input type="checkbox" ${task.done ? 'checked' : ''} onchange="toggleTask(${task.id})">
+                        <div style="flex:1">
+                            <span class="task-text">${task.title}</span>
+                            <div style="font-size:0.7em; color:#666">${task.date}</div>
+                            <button class="memo-toggle" onclick="toggleMemoView(${task.id})">
+                                ${task.memo ? '📝 メモを表示/編集' : '+ メモを追加'}
+                            </button>
+                        </div>
+                        <button class="move-btn" onclick="moveTask(${task.id})">${task.isBacklog ? '⚡予定へ' : '💤保留へ'}</button>
+                    </div>
+                    <div class="memo-area" id="memo-${task.id}" style="display: ${task.showMemo ? 'block' : 'none'}">
+                        <div class="memo-content-display">${task.memo || 'メモはまだありません。クリックして編集。'}</div>
+                        <textarea class="memo-edit" id="edit-${task.id}" style="display:none" rows="3">${task.memo}</textarea>
+                        <button class="move-btn" id="save-btn-${task.id}" style="display:none" onclick="saveMemo(${task.id}, document.getElementById('edit-${task.id}').value)">保存</button>
+                    </div>
+                `;
+
+                // メモのクリックで編集モードに
+                const memoDisplay = item.querySelector('.memo-content-display');
+                const memoEdit = item.querySelector('.memo-edit');
+                const saveBtn = item.querySelector(`#save-btn-${task.id}`);
+                
+                memoDisplay.addEventListener('click', () => {
+                    memoDisplay.style.display = 'none';
+                    memoEdit.style.display = 'block';
+                    saveBtn.style.display = 'block';
+                    memoEdit.focus();
+                });
+
+                if (task.isBacklog) { backlogDiv.appendChild(item); } else { scheduledDiv.appendChild(item); }
+            });
+
+            localStorage.setItem('myTodoTasks', JSON.stringify(tasks));
+
+            // 数式レンダリング（タイトルとメモの両方に適用）
+            document.querySelectorAll('.task-text, .memo-content-display').forEach(el => {
+                el.innerHTML = el.innerHTML.replace(/\$(.*?)\$/g, (match, formula) => {
+                    return katex.renderToString(formula, { throwOnError: false });
+                });
+            });
+
+            if (typeof window.saveToCloud === "function") {
+                window.saveToCloud();
+            }
+        }
+        render();
+    </script>
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+        import { getFirestore, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+      
+        const firebaseConfig = {
+            apiKey: "AIzaSyDjnlxV-O5KXmTPlNRmyYIngygjyjvWSEY",
+            authDomain: "my-research-todo.firebaseapp.com",
+            projectId: "my-research-todo",
+            storageBucket: "my-research-todo.firebasestorage.app",
+            messagingSenderId: "23018762664",
+            appId: "1:23018762664:web:7aa9046b27f18181d5ed9d"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+
+        // あなた専用のデータ保存場所（ドキュメント名。任意の名前に変えてもOK）
+        const userDocId = "my-research-tasks"; 
+
+        // --- クラウドからデータを「読み込む」処理 ---
+        // Firestore上でデータが更新されると、ブラウザ側も自動で書き換わります
+        onSnapshot(doc(db, "todo_lists", userDocId), (docSnap) => {
+            if (docSnap.exists()) {
+                // クラウドにデータがあれば、それをグローバルの tasks に反映
+                window.tasks = docSnap.data().tasks;
+                render(); // 画面を再描画
+            }
+        });
+
+        // --- クラウドへデータを「保存する」関数 ---
+        // これを既存の JavaScript から呼び出せるように window オブジェクトに追加します
+        window.saveToCloud = async function() {
+            try {
+                await setDoc(doc(db, "todo_lists", userDocId), {
+                    tasks: window.tasks,
+                    updatedAt: new Date()
+                });
+                console.log("Cloud saved!");
+            } catch (e) {
+                console.error("Error saving to cloud: ", e);
+            }
+        };
+    </script>
+</body>
+</html>
