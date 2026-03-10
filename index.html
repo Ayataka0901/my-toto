@@ -58,6 +58,10 @@
                 <h3>📥 保留（Backlog）</h3>
                 <div id="backlog-list"></div>
             </div>
+            <div class="list-card" style="grid-column: 1 / -1; margin-top: 20px; opacity: 0.7;">
+                <h3 onclick="document.getElementById('archive-list').style.display = 'block'" style="cursor:pointer">📦 アーカイブ済み（クリックで表示）</h3>
+                <div id="archive-list" style="display:none"></div>
+            </div>
         </div>
     </div>
 
@@ -120,6 +124,21 @@
             render();
         }
 
+        // 日時を変更する関数
+        function updateDate(id, newDate) {
+            const task = tasks.find(t => t.id === id);
+            task.date = newDate;
+            task.isBacklog = (newDate === ""); // 日付が空になれば自動で保留へ
+            render();
+        }
+
+        // アーカイブに送る関数
+        function archiveTask(id) {
+            const task = tasks.find(t => t.id === id);
+            task.isArchived = true;
+            render();
+        }
+
         function render() {
             const scheduledDiv = document.getElementById('scheduled-list');
             const backlogDiv = document.getElementById('backlog-list');
@@ -127,6 +146,12 @@
             backlogDiv.innerHTML = "";
 
             tasks.forEach(task => {
+                if (task.isArchived) {
+                    const archItem = document.createElement('div');
+                    archItem.innerHTML = `<span style="color:#888">${task.title} (${task.date})</span>`;
+                    document.getElementById('archive-list').appendChild(archItem);
+                    return; 
+                }
                 const item = document.createElement('div');
                 item.className = `todo-item ${task.done ? 'done' : ''}`;
                 item.innerHTML = `
