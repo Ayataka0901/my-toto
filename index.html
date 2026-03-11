@@ -25,7 +25,8 @@
         button { background: var(--accent); color: white; border: none; cursor: pointer; }
         .date-edit { font-size: 0.8em; padding: 2px; border: none; background: #f0f0f0; color: #666; }
         .archive-section { grid-column: 1 / -1; margin-top: 30px; border-top: 1px solid #ccc; padding-top: 10px; }
-        .archive-item { font-size: 0.85em; color: #777; padding: 4px 0; border-bottom: 1px dashed #ddd; }
+        .archive-item { font-size: 0.85em; color: #777; padding: 6px 0; border-bottom: 1px dashed #ddd; }
+        .bulk-delete-bar { text-align: right; margin-bottom: 15px; padding: 10px; background: #fff; border-radius: 6px; font-size: 0.9em; box-shadow: inset 0 0 5px rgba(0,0,0,0.05); }
     </style>
 </head>
 <body>
@@ -54,63 +55,64 @@
                 <h3>📥 保留（Backlog）</h3>
                 <div id="backlog-list"></div>
             </div>
+            
             <div class="archive-section">
                 <h4 onclick="toggleArchive()" style="cursor:pointer">📦 アーカイブ済みタスク (クリックで開閉)</h4>
-                <div id="archive-list" style="display:none"></div>
+                <div id="archive-wrap" style="display:none">
+                    <div class="bulk-delete-bar">
+                        <label>期間を指定して一括整理: </label>
+                        <input type="month" id="archive-delete-month">
+                        <button onclick="bulkDeleteArchive()" style="background: #ff3b30; padding: 4px 8px; margin-left: 5px;">以前の項目を削除</button>
+                    </div>
+                    <div id="archive-list"></div>
+                </div>
             </div>
         </div>
     </div>
 
     <script type="module">
-        // --- Firebase 設定 ---
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-        // 修正: onSnapshot を削除し、getDoc を追加しました
         import { getFirestore, doc, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
         const firebaseConfig = {
-              apiKey: "AIzaSyDjnlxV-O5KXmTPlNRmyYIngygjyjvWSEY",
-              authDomain: "my-research-todo.firebaseapp.com",
-              projectId: "my-research-todo",
-              storageBucket: "my-research-todo.firebasestorage.app",
-              messagingSenderId: "23018762664",
-              appId: "1:23018762664:web:7aa9046b27f18181d5ed9d"
+            apiKey: "AIzaSyDjnlxV-O5KXmTPlNRmyYIngygjyjvWSEY",
+            authDomain: "my-research-todo.firebaseapp.com",
+            projectId: "my-research-todo",
+            storageBucket: "my-research-todo.firebasestorage.app",
+            messagingSenderId: "23018762664",
+            appId: "1:23018762664:web:7aa9046b27f18181d5ed9d"
         };
 
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
         const userDocId = "my-research-tasks";
 
-        // --- データ管理ロジック ---
         window.tasks = [];
 
-        // 修正: ページ読み込み時に1回だけデータを取得する関数
         async function loadData() {
             try {
                 const docRef = doc(db, "todo_lists", userDocId);
                 const docSnap = await getDoc(docRef);
                 if (docSnap.exists()) {
                     window.tasks = docSnap.data().tasks || [];
-                    render(false); // false を渡すことで、読み込み直後の無駄な「保存」を防ぎます
+                    render(false); 
                 }
             } catch (e) {
                 console.error("データの読み込みに失敗しました:", e);
             }
         }
 
-        // クラウドへ保存
         window.saveToCloud = async function() {
             try {
                 await setDoc(doc(db, "todo_lists", userDocId), { tasks: window.tasks, updatedAt: new Date() });
-                console.log("クラウドに保存しました");
             } catch (e) {
                 console.error("保存に失敗しました:", e);
             }
         };
 
-        // --- アプリケーション操作関数 ---
         window.checkPass = function() {
             const pass = document.getElementById('pass-input').value;
-            if (pass === "lab123") { // パスワード
+            if (pass === "lab123") { 
                 document.getElementById('auth-overlay').style.display = 'none';
                 document.getElementById('main-content').style.display = 'block';
             } else { alert("Wrong password"); }
@@ -124,7 +126,7 @@
                 id: Date.now(), title, memo: "", date,
                 isBacklog: date === "", done: false, showMemo: false, isArchived: false
             });
-            render(); // デフォルトで shouldSave = true となり保存されます
+            render(); 
             document.getElementById('new-task-title').value = "";
         };
 
@@ -160,7 +162,7 @@
         };
 
         window.toggleArchive = function() {
-            const el = document.getElementById('archive-list');
+            const el = document.getElementById('archive-wrap');
             el.style.display = (el.style.display === 'none') ? 'block' : 'none';
         };
 
@@ -170,13 +172,42 @@
             render();
         };
 
-        // 修正: 引数 shouldSave を追加し、デフォルトを true にしました
+        // 【新規】個別のタスクを完全に削除する関数
+        window.deleteTask = function(id) {
+            if (confirm("このタスクを完全に削除しますか？（元に戻せません）")) {
+                window.tasks = window.tasks.filter(t => t.id !== id);
+                render();
+            }
+        };
+
+        // 【新規】指定月以前のアーカイブを一括削除する関数
+        window.bulkDeleteArchive = function() {
+            const monthInput = document.getElementById('archive-delete-month').value; // 例: "2026-03"
+            if (!monthInput) {
+                alert("削除する期間（年月）を指定してください。");
+                return;
+            }
+            if (confirm(`${monthInput} 以前のアーカイブ済みタスクをすべて削除しますか？`)) {
+                window.tasks = window.tasks.filter(task => {
+                    if (!task.isArchived) return true; // 現役タスクは残す
+                    if (!task.date) return true; // 日付なし（保留のままアーカイブされたもの）は残す
+
+                    // 日付の先頭7文字 (YYYY-MM) を比較
+                    const taskMonth = task.date.substring(0, 7);
+                    if (taskMonth <= monthInput) {
+                        return false; // 条件に一致するものは削除 (配列から除外)
+                    }
+                    return true; // それ以外は残す
+                });
+                render();
+            }
+        };
+
         window.render = function(shouldSave = true) {
             const scheduledDiv = document.getElementById('scheduled-list');
             const backlogDiv = document.getElementById('backlog-list');
             const archiveDiv = document.getElementById('archive-list');
     
-            // 一旦クリア
             scheduledDiv.innerHTML = ""; 
             backlogDiv.innerHTML = ""; 
             archiveDiv.innerHTML = "";
@@ -191,10 +222,13 @@
                     archItem.style.alignItems = "center";
                     archItem.innerHTML = `
                         <span>✓ ${task.title} <small>(${task.date || '保留'})</small></span>
-                        <button onclick="unarchiveTask(${task.id})" style="background:#e5e5ea; color:#333; font-size:10px; padding:2px 5px;">↩️ 戻す</button>
+                        <div>
+                            <button onclick="unarchiveTask(${task.id})" style="background:#e5e5ea; color:#333; font-size:10px; padding:2px 5px; margin-right:5px;">↩️ 戻す</button>
+                            <button onclick="deleteTask(${task.id})" style="background:none; border:none; cursor:pointer;" title="完全に削除">🗑️</button>
+                        </div>
                     `;
                     archiveDiv.appendChild(archItem);
-                    return; // アーカイブ済みならここで終了
+                    return; 
                 }
 
                 // --- 現役タスクの表示 ---
@@ -212,7 +246,10 @@
                                 ${task.memo ? '📝 メモ表示' : '+ メモ追加'}
                             </button>
                         </div>
-                        ${task.done ? `<button onclick="archiveTask(${task.id})" style="background:#eee;color:#333;font-size:12px;padding:4px 8px;">📦</button>` : ''}
+                        <div style="display:flex; align-items:center;">
+                            ${task.done ? `<button onclick="archiveTask(${task.id})" style="background:#eee;color:#333;font-size:12px;padding:4px 8px;margin-right:5px;">📦</button>` : ''}
+                            <button onclick="deleteTask(${task.id})" style="background:none; border:none; font-size:1.2em; cursor:pointer;" title="完全に削除">🗑️</button>
+                        </div>
                     </div>
                     <div class="memo-area" id="memo-${task.id}" style="display: ${task.showMemo ? 'block' : 'none'}">
                         <div class="memo-content-display" onclick="this.nextElementSibling.style.display='block';this.style.display='none';this.nextElementSibling.nextElementSibling.style.display='block'">${task.memo || 'クリックしてメモを入力'}</div>
@@ -228,20 +265,17 @@
                 }
             });
 
-            // 数式表示
             document.querySelectorAll('.task-text, .memo-content-display, .archive-item span').forEach(el => {
                 el.innerHTML = el.innerHTML.replace(/\$(.*?)\$/g, (match, formula) => {
                     return katex.renderToString(formula, { throwOnError: false });
                 });
             });
 
-            // 修正: shouldSave が true の時だけクラウド保存を実行
             if (shouldSave && typeof window.saveToCloud === "function") {
                 window.saveToCloud();
             }
         };
 
-        // 修正: 最後に1回だけデータ読み込みを実行してアプリをスタート
         loadData();
 
     </script>
