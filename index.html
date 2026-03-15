@@ -23,11 +23,19 @@
         .input-group { margin-bottom: 20px; display: flex; gap: 10px; flex-wrap: wrap; background: #fff; padding: 15px; border-radius: 12px; }
         input, button, textarea { border-radius: 6px; border: 1px solid #ccc; padding: 8px; }
         button { background: var(--accent); color: white; border: none; cursor: pointer; }
-        .date-edit, .time-edit { font-size: 0.8em; padding: 2px; border: none; background: #f0f0f0; color: #666; margin-right: 5px; }
+        .date-edit, .time-edit, .label-edit { font-size: 0.8em; padding: 2px 4px; border: 1px solid #ddd; border-radius: 4px; background: #f9f9f9; color: #333; margin-right: 5px; }
         .archive-section { grid-column: 1 / -1; margin-top: 30px; border-top: 1px solid #ccc; padding-top: 10px; }
         .archive-item { font-size: 0.85em; color: #777; padding: 6px 0; border-bottom: 1px dashed #ddd; }
         .bulk-delete-bar { text-align: right; margin-bottom: 15px; padding: 10px; background: #fff; border-radius: 6px; font-size: 0.9em; box-shadow: inset 0 0 5px rgba(0,0,0,0.05); }
         .task-title-edit { font-family: inherit; font-size: 1em; padding: 2px 5px; border: 1px solid var(--accent); border-radius: 4px; }
+        
+        /* ラベルとフィルター用のスタイル */
+        .label-chip { background: #e5e5ea; color: #333; border-radius: 10px; padding: 2px 8px; font-size: 0.75em; margin-right: 4px; display: inline-block; font-weight: 500; }
+        .filter-bar { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 20px; padding: 10px; background: #fff; border-radius: 8px; align-items: center; }
+        .filter-btn { background: #f0f0f0; color: #555; border: none; padding: 5px 12px; border-radius: 15px; font-size: 0.85em; cursor: pointer; transition: all 0.2s; }
+        .filter-btn:hover { background: #e0e0e0; }
+        .filter-btn.active { background: var(--accent); color: white; font-weight: bold; }
+        .filter-label-text { font-size: 0.9em; font-weight: bold; color: #666; margin-right: 10px; }
     </style>
 </head>
 <body>
@@ -45,8 +53,11 @@
             <input type="text" id="new-task-title" placeholder="タスク内容 (例: $E=mc^2$)" style="flex:3">
             <input type="date" id="new-task-date" style="flex:1" title="日付">
             <input type="time" id="new-task-time" style="flex:1" title="時間">
+            <input type="text" id="new-task-labels" placeholder="ラベル(例: 論文, 実験)" style="flex:1.5">
             <button onclick="addTask()">追加</button>
         </div>
+
+        <div id="filter-container" class="filter-bar" style="display:none;"></div>
 
         <div class="container">
             <div class="list-card">
@@ -64,7 +75,7 @@
                     <div class="bulk-delete-bar">
                         <label>期間を指定して一括整理: </label>
                         <input type="month" id="archive-delete-month">
-                        <button onclick="bulkDeleteArchive()" style="background: #ff3b30; padding: 4px 8px; margin-left: 5px;">以前の項目を削除</button>
+                        <button onclick="bulkDeleteArchive()" style="background: #ff3b30; color: white; border: none; border-radius: 4px; padding: 4px 8px; margin-left: 5px; cursor: pointer;">以前の項目を削除</button>
                     </div>
                     <div id="archive-list"></div>
                 </div>
@@ -90,6 +101,7 @@
         const userDocId = "my-research-tasks";
 
         window.tasks = [];
+        window.currentFilter = null; // 現在選択されているラベルフィルター
 
         async function loadData() {
             try {
@@ -123,129 +135,135 @@
         window.addTask = function() {
             const title = document.getElementById('new-task-title').value;
             const date = document.getElementById('new-task-date').value;
-            const time = document.getElementById('new-task-time').value; // 時間を取得
+            const time = document.getElementById('new-task-time').value;
+            const labelsInput = document.getElementById('new-task-labels').value;
+            
             if (!title) return;
+
+            // カンマ区切りで配列にする（空白は除去）
+            const labels = labelsInput.split(',').map(l => l.trim()).filter(l => l);
+
             window.tasks.push({
-                id: Date.now(), title, memo: "", date, time: time || "", 
+                id: Date.now(), title, memo: "", date, time: time || "", labels: labels,
                 isBacklog: date === "", done: false, showMemo: false, isArchived: false
             });
             render(); 
+            
+            // 入力欄をクリア
             document.getElementById('new-task-title').value = "";
             document.getElementById('new-task-time').value = "";
+            document.getElementById('new-task-labels').value = "";
         };
 
-        window.toggleTask = function(id) {
+        // --- 各種更新関数 ---
+        window.toggleTask = function(id) { const task = window.tasks.find(t => t.id === id); if(task) { task.done = !task.done; render(); } };
+        window.updateTitle = function(id, newTitle) { const task = window.tasks.find(t => t.id === id); if (task && newTitle.trim() !== "") { task.title = newTitle; render(); } };
+        window.updateDate = function(id, newDate) { const task = window.tasks.find(t => t.id === id); if(task) { task.date = newDate; task.isBacklog = (newDate === ""); render(); } };
+        window.updateTime = function(id, newTime) { const task = window.tasks.find(t => t.id === id); if(task) { task.time = newTime; render(); } };
+        window.archiveTask = function(id) { const task = window.tasks.find(t => t.id === id); if(task) { task.isArchived = true; render(); } };
+        window.toggleMemoView = function(id) { const task = window.tasks.find(t => t.id === id); if(task) { task.showMemo = !task.showMemo; render(); } };
+        window.saveMemo = function(id, newText) { const task = window.tasks.find(t => t.id === id); if(task) { task.memo = newText; render(); } };
+        window.toggleArchive = function() { const el = document.getElementById('archive-wrap'); el.style.display = (el.style.display === 'none') ? 'block' : 'none'; };
+        window.unarchiveTask = function(id) { const task = window.tasks.find(t => t.id === id); if(task) { task.isArchived = false; render(); } };
+        window.deleteTask = function(id) { if (confirm("このタスクを完全に削除しますか？")) { window.tasks = window.tasks.filter(t => t.id !== id); render(); } };
+        
+        // 【新規】ラベルを更新する関数
+        window.updateLabels = function(id, labelsString) {
             const task = window.tasks.find(t => t.id === id);
             if(task) {
-                task.done = !task.done;
+                task.labels = labelsString.split(',').map(l => l.trim()).filter(l => l);
                 render();
             }
         };
 
-        // 【新規】タイトルを更新する関数
-        window.updateTitle = function(id, newTitle) {
-            const task = window.tasks.find(t => t.id === id);
-            if (task && newTitle.trim() !== "") {
-                task.title = newTitle;
-                render();
-            }
-        };
-
-        window.updateDate = function(id, newDate) {
-            const task = window.tasks.find(t => t.id === id);
-            if(task) {
-                task.date = newDate;
-                task.isBacklog = (newDate === "");
-                render();
-            }
-        };
-
-        // 【新規】時間を更新する関数
-        window.updateTime = function(id, newTime) {
-            const task = window.tasks.find(t => t.id === id);
-            if(task) {
-                task.time = newTime;
-                render();
-            }
-        };
-
-        window.archiveTask = function(id) {
-            const task = window.tasks.find(t => t.id === id);
-            if(task) {
-                task.isArchived = true;
-                render();
-            }
-        };
-
-        window.toggleMemoView = function(id) {
-            const task = window.tasks.find(t => t.id === id);
-            if(task) {
-                task.showMemo = !task.showMemo;
-                render();
-            }
-        };
-
-        window.saveMemo = function(id, newText) {
-            const task = window.tasks.find(t => t.id === id);
-            if(task) {
-                task.memo = newText;
-                render();
-            }
-        };
-
-        window.toggleArchive = function() {
-            const el = document.getElementById('archive-wrap');
-            el.style.display = (el.style.display === 'none') ? 'block' : 'none';
-        };
-
-        window.unarchiveTask = function(id) {
-            const task = window.tasks.find(t => t.id === id);
-            if(task) {
-                task.isArchived = false;
-                render();
-            }
-        };
-
-        window.deleteTask = function(id) {
-            if (confirm("このタスクを完全に削除しますか？（元に戻せません）")) {
-                window.tasks = window.tasks.filter(t => t.id !== id);
-                render();
-            }
+        // 【新規】フィルターを設定する関数
+        window.setFilter = function(label) {
+            // 同じラベルをクリックした場合はフィルター解除、違う場合はそのラベルでフィルター
+            window.currentFilter = (window.currentFilter === label) ? null : label;
+            render(false); // 表示を切り替えるだけなのでクラウド保存は不要
         };
 
         window.bulkDeleteArchive = function() {
             const monthInput = document.getElementById('archive-delete-month').value; 
-            if (!monthInput) {
-                alert("削除する期間（年月）を指定してください。");
-                return;
-            }
+            if (!monthInput) { alert("削除する期間（年月）を指定してください。"); return; }
             if (confirm(`${monthInput} 以前のアーカイブ済みタスクをすべて削除しますか？`)) {
                 window.tasks = window.tasks.filter(task => {
-                    if (!task.isArchived) return true; 
-                    if (!task.date) return true; 
-
-                    const taskMonth = task.date.substring(0, 7);
-                    if (taskMonth <= monthInput) {
-                        return false; 
-                    }
-                    return true; 
+                    if (!task.isArchived || !task.date) return true; 
+                    return task.date.substring(0, 7) > monthInput; 
                 });
                 render();
             }
         };
 
+        // --- 描画関数 ---
         window.render = function(shouldSave = true) {
             const scheduledDiv = document.getElementById('scheduled-list');
             const backlogDiv = document.getElementById('backlog-list');
             const archiveDiv = document.getElementById('archive-list');
+            const filterContainer = document.getElementById('filter-container');
     
             scheduledDiv.innerHTML = ""; 
             backlogDiv.innerHTML = ""; 
             archiveDiv.innerHTML = "";
+            filterContainer.innerHTML = "";
 
+            // 【ソート処理】日付と時間で自動並び替え
+            window.tasks.sort((a, b) => {
+                if (!a.date && !b.date) return b.id - a.id; // どちらも保留なら新しい順
+                if (!a.date) return 1;  // aが保留なら後ろへ
+                if (!b.date) return -1; // bが保留なら後ろへ
+                
+                // 日付が違う場合は日付順
+                if (a.date !== b.date) return a.date.localeCompare(b.date);
+                
+                // 日付が同じ場合は時間順（未入力は 23:59 として一日の最後に配置）
+                const timeA = a.time || "23:59";
+                const timeB = b.time || "23:59";
+                return timeA.localeCompare(timeB);
+            });
+
+            // 【ラベル抽出】全タスクからユニークなラベルを収集してフィルターバーを生成
+            const allLabels = new Set();
+            window.tasks.forEach(t => { if (t.labels) t.labels.forEach(l => allLabels.add(l)); });
+            
+            if (allLabels.size > 0) {
+                filterContainer.style.display = "flex";
+                filterContainer.innerHTML = `<span class="filter-label-text">🏷️ ラベルで絞り込み:</span>`;
+                
+                // 「すべて」ボタン
+                const allBtn = document.createElement('button');
+                allBtn.className = `filter-btn ${window.currentFilter === null ? 'active' : ''}`;
+                allBtn.innerText = "すべて表示";
+                allBtn.onclick = () => setFilter(null);
+                filterContainer.appendChild(allBtn);
+
+                // 各ラベルボタン
+                allLabels.forEach(label => {
+                    const btn = document.createElement('button');
+                    btn.className = `filter-btn ${window.currentFilter === label ? 'active' : ''}`;
+                    btn.innerText = label;
+                    btn.onclick = () => setFilter(label);
+                    filterContainer.appendChild(btn);
+                });
+            } else {
+                filterContainer.style.display = "none";
+                window.currentFilter = null; // ラベルが一つも無くなったらフィルター解除
+            }
+
+            // タスクの描画ループ
             window.tasks.forEach(task => {
-                // 安全のため、タイトルに含まれる " をエスケープ
+                // 古いデータへの互換性対応
+                const taskLabels = task.labels || [];
+                
+                // 【フィルター適用】選択中のラベルが含まれていなければスキップ（表示しない）
+                if (window.currentFilter && !taskLabels.includes(window.currentFilter)) {
+                    return;
+                }
+
+                // 安全のため、タイトルやラベルに含まれる " をエスケープ
                 const safeTitle = task.title.replace(/"/g, '&quot;');
+                const safeLabels = taskLabels.join(', ').replace(/"/g, '&quot;');
+                const labelHTML = taskLabels.map(l => `<span class="label-chip">${l}</span>`).join('');
 
                 // --- アーカイブ済みタスクの表示 ---
                 if (task.isArchived) {
@@ -255,9 +273,9 @@
                     archItem.style.justifyContent = "space-between";
                     archItem.style.alignItems = "center";
                     archItem.innerHTML = `
-                        <span>✓ ${task.title} <small>(${task.date || '保留'} ${task.time || ''})</small></span>
+                        <span>✓ ${task.title} <small>(${task.date || '保留'} ${task.time || ''})</small> ${labelHTML}</span>
                         <div>
-                            <button onclick="unarchiveTask(${task.id})" style="background:#e5e5ea; color:#333; font-size:10px; padding:2px 5px; margin-right:5px;">↩️ 戻す</button>
+                            <button onclick="unarchiveTask(${task.id})" style="background:#e5e5ea; color:#333; font-size:10px; padding:2px 5px; margin-right:5px; border:none; border-radius:4px; cursor:pointer;">↩️ 戻す</button>
                             <button onclick="deleteTask(${task.id})" style="background:none; border:none; cursor:pointer;" title="完全に削除">🗑️</button>
                         </div>
                     `;
@@ -269,7 +287,6 @@
                 const item = document.createElement('div');
                 item.className = `todo-item ${task.done ? 'done' : ''}`;
                 
-                // タイトルの表示部分と編集部分を切り替えるUI
                 item.innerHTML = `
                     <div class="todo-main">
                         <input type="checkbox" ${task.done ? 'checked' : ''} onchange="toggleTask(${task.id})">
@@ -277,23 +294,29 @@
                             <div class="task-text-display" onclick="this.style.display='none'; this.nextElementSibling.style.display='block'; this.nextElementSibling.focus();" style="cursor:text; min-height:1.2em;" title="クリックして編集">${task.title}</div>
                             <input type="text" class="task-title-edit" value="${safeTitle}" style="display:none; width:95%;" onblur="updateTitle(${task.id}, this.value)" onkeydown="if(event.key==='Enter') {this.blur();}">
                             
-                            <div style="margin-top: 4px;">
+                            <div style="margin-top: 4px; display:flex; align-items:center; flex-wrap:wrap; gap:4px;">
                                 <input type="date" class="date-edit" value="${task.date}" onchange="updateDate(${task.id}, this.value)">
                                 <input type="time" class="time-edit" value="${task.time || ''}" onchange="updateTime(${task.id}, this.value)">
+                                
+                                <div style="display:inline-flex; align-items:center;">
+                                    ${labelHTML}
+                                    <input type="text" class="label-edit" style="width:100px;" placeholder="ラベル追加..." value="${safeLabels}" title="カンマ区切りで入力" onblur="updateLabels(${task.id}, this.value)" onkeydown="if(event.key==='Enter') {this.blur();}">
+                                </div>
                             </div>
+                            
                             <button class="memo-toggle" style="background:none;color:var(--accent);border:none;font-size:0.8em;padding:0;text-decoration:underline;cursor:pointer;margin-top:4px;" onclick="toggleMemoView(${task.id})">
                                 ${task.memo ? '📝 メモ表示' : '+ メモ追加'}
                             </button>
                         </div>
                         <div style="display:flex; align-items:center;">
-                            ${task.done ? `<button onclick="archiveTask(${task.id})" style="background:#eee;color:#333;font-size:12px;padding:4px 8px;margin-right:5px;">📦</button>` : ''}
+                            ${task.done ? `<button onclick="archiveTask(${task.id})" style="background:#eee;color:#333;font-size:12px;padding:4px 8px;margin-right:5px;border:none;border-radius:4px;cursor:pointer;">📦</button>` : ''}
                             <button onclick="deleteTask(${task.id})" style="background:none; border:none; font-size:1.2em; cursor:pointer;" title="完全に削除">🗑️</button>
                         </div>
                     </div>
                     <div class="memo-area" id="memo-${task.id}" style="display: ${task.showMemo ? 'block' : 'none'}">
                         <div class="memo-content-display" onclick="this.nextElementSibling.style.display='block';this.style.display='none';this.nextElementSibling.nextElementSibling.style.display='block'">${task.memo || 'クリックしてメモを入力'}</div>
                         <textarea class="memo-edit" style="display:none" rows="3">${task.memo}</textarea>
-                        <button style="display:none;margin-top:5px;font-size:10px;" onclick="saveMemo(${task.id}, this.previousElementSibling.value)">保存</button>
+                        <button style="display:none;margin-top:5px;font-size:10px;background:var(--accent);color:white;border:none;border-radius:4px;padding:4px 8px;cursor:pointer;" onclick="saveMemo(${task.id}, this.previousElementSibling.value)">保存</button>
                     </div>
                 `;
 
@@ -304,8 +327,8 @@
                 }
             });
 
-            // 数式表示（タイトルのクラス名を '.task-text-display' に変更しています）
-            document.querySelectorAll('.task-text-display, .memo-content-display, .archive-item span').forEach(el => {
+            // 数式表示
+            document.querySelectorAll('.task-text-display, .memo-content-display, .archive-item span, .label-chip').forEach(el => {
                 el.innerHTML = el.innerHTML.replace(/\$(.*?)\$/g, (match, formula) => {
                     return katex.renderToString(formula, { throwOnError: false });
                 });
