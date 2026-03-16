@@ -29,7 +29,6 @@
         .bulk-delete-bar { text-align: right; margin-bottom: 15px; padding: 10px; background: #fff; border-radius: 6px; font-size: 0.9em; box-shadow: inset 0 0 5px rgba(0,0,0,0.05); }
         .task-title-edit { font-family: inherit; font-size: 1em; padding: 2px 5px; border: 1px solid var(--accent); border-radius: 4px; }
         
-        /* ラベルとフィルター用のスタイル */
         .label-chip { background: #e5e5ea; color: #333; border-radius: 10px; padding: 2px 8px; font-size: 0.75em; margin-right: 4px; display: inline-block; font-weight: 500; }
         .filter-bar { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 20px; padding: 10px; background: #fff; border-radius: 8px; align-items: center; }
         .filter-btn { background: #f0f0f0; color: #555; border: none; padding: 5px 12px; border-radius: 15px; font-size: 0.85em; cursor: pointer; transition: all 0.2s; }
@@ -101,7 +100,7 @@
         const userDocId = "my-research-tasks";
 
         window.tasks = [];
-        window.currentFilter = null; // 現在選択されているラベルフィルター
+        window.currentFilter = null; 
 
         async function loadData() {
             try {
@@ -140,7 +139,6 @@
             
             if (!title) return;
 
-            // カンマ区切りで配列にする（空白は除去）
             const labels = labelsInput.split(',').map(l => l.trim()).filter(l => l);
 
             window.tasks.push({
@@ -149,39 +147,35 @@
             });
             render(); 
             
-            // 入力欄をクリア
             document.getElementById('new-task-title').value = "";
             document.getElementById('new-task-time').value = "";
             document.getElementById('new-task-labels').value = "";
         };
 
-        // --- 各種更新関数 ---
         window.toggleTask = function(id) { const task = window.tasks.find(t => t.id === id); if(task) { task.done = !task.done; render(); } };
         window.updateTitle = function(id, newTitle) { const task = window.tasks.find(t => t.id === id); if (task && newTitle.trim() !== "") { task.title = newTitle; render(); } };
         window.updateDate = function(id, newDate) { const task = window.tasks.find(t => t.id === id); if(task) { task.date = newDate; task.isBacklog = (newDate === ""); render(); } };
         window.updateTime = function(id, newTime) { const task = window.tasks.find(t => t.id === id); if(task) { task.time = newTime; render(); } };
+        
+        // 【新規】日時をクリアして強制的に保留に戻す関数
+        window.clearDateTime = function(id) {
+            const task = window.tasks.find(t => t.id === id);
+            if(task) {
+                task.date = "";
+                task.time = "";
+                task.isBacklog = true;
+                render();
+            }
+        };
+
         window.archiveTask = function(id) { const task = window.tasks.find(t => t.id === id); if(task) { task.isArchived = true; render(); } };
         window.toggleMemoView = function(id) { const task = window.tasks.find(t => t.id === id); if(task) { task.showMemo = !task.showMemo; render(); } };
         window.saveMemo = function(id, newText) { const task = window.tasks.find(t => t.id === id); if(task) { task.memo = newText; render(); } };
         window.toggleArchive = function() { const el = document.getElementById('archive-wrap'); el.style.display = (el.style.display === 'none') ? 'block' : 'none'; };
         window.unarchiveTask = function(id) { const task = window.tasks.find(t => t.id === id); if(task) { task.isArchived = false; render(); } };
         window.deleteTask = function(id) { if (confirm("このタスクを完全に削除しますか？")) { window.tasks = window.tasks.filter(t => t.id !== id); render(); } };
-        
-        // 【新規】ラベルを更新する関数
-        window.updateLabels = function(id, labelsString) {
-            const task = window.tasks.find(t => t.id === id);
-            if(task) {
-                task.labels = labelsString.split(',').map(l => l.trim()).filter(l => l);
-                render();
-            }
-        };
-
-        // 【新規】フィルターを設定する関数
-        window.setFilter = function(label) {
-            // 同じラベルをクリックした場合はフィルター解除、違う場合はそのラベルでフィルター
-            window.currentFilter = (window.currentFilter === label) ? null : label;
-            render(false); // 表示を切り替えるだけなのでクラウド保存は不要
-        };
+        window.updateLabels = function(id, labelsString) { const task = window.tasks.find(t => t.id === id); if(task) { task.labels = labelsString.split(',').map(l => l.trim()).filter(l => l); render(); } };
+        window.setFilter = function(label) { window.currentFilter = (window.currentFilter === label) ? null : label; render(false); };
 
         window.bulkDeleteArchive = function() {
             const monthInput = document.getElementById('archive-delete-month').value; 
@@ -195,7 +189,6 @@
             }
         };
 
-        // --- 描画関数 ---
         window.render = function(shouldSave = true) {
             const scheduledDiv = document.getElementById('scheduled-list');
             const backlogDiv = document.getElementById('backlog-list');
@@ -207,22 +200,18 @@
             archiveDiv.innerHTML = "";
             filterContainer.innerHTML = "";
 
-            // 【ソート処理】日付と時間で自動並び替え
             window.tasks.sort((a, b) => {
-                if (!a.date && !b.date) return b.id - a.id; // どちらも保留なら新しい順
-                if (!a.date) return 1;  // aが保留なら後ろへ
-                if (!b.date) return -1; // bが保留なら後ろへ
+                if (!a.date && !b.date) return b.id - a.id; 
+                if (!a.date) return 1;  
+                if (!b.date) return -1; 
                 
-                // 日付が違う場合は日付順
                 if (a.date !== b.date) return a.date.localeCompare(b.date);
                 
-                // 日付が同じ場合は時間順（未入力は 23:59 として一日の最後に配置）
                 const timeA = a.time || "23:59";
                 const timeB = b.time || "23:59";
                 return timeA.localeCompare(timeB);
             });
 
-            // 【ラベル抽出】全タスクからユニークなラベルを収集してフィルターバーを生成
             const allLabels = new Set();
             window.tasks.forEach(t => { if (t.labels) t.labels.forEach(l => allLabels.add(l)); });
             
@@ -230,14 +219,12 @@
                 filterContainer.style.display = "flex";
                 filterContainer.innerHTML = `<span class="filter-label-text">🏷️ ラベルで絞り込み:</span>`;
                 
-                // 「すべて」ボタン
                 const allBtn = document.createElement('button');
                 allBtn.className = `filter-btn ${window.currentFilter === null ? 'active' : ''}`;
                 allBtn.innerText = "すべて表示";
                 allBtn.onclick = () => setFilter(null);
                 filterContainer.appendChild(allBtn);
 
-                // 各ラベルボタン
                 allLabels.forEach(label => {
                     const btn = document.createElement('button');
                     btn.className = `filter-btn ${window.currentFilter === label ? 'active' : ''}`;
@@ -247,25 +234,20 @@
                 });
             } else {
                 filterContainer.style.display = "none";
-                window.currentFilter = null; // ラベルが一つも無くなったらフィルター解除
+                window.currentFilter = null; 
             }
 
-            // タスクの描画ループ
             window.tasks.forEach(task => {
-                // 古いデータへの互換性対応
                 const taskLabels = task.labels || [];
                 
-                // 【フィルター適用】選択中のラベルが含まれていなければスキップ（表示しない）
                 if (window.currentFilter && !taskLabels.includes(window.currentFilter)) {
                     return;
                 }
 
-                // 安全のため、タイトルやラベルに含まれる " をエスケープ
                 const safeTitle = task.title.replace(/"/g, '&quot;');
                 const safeLabels = taskLabels.join(', ').replace(/"/g, '&quot;');
                 const labelHTML = taskLabels.map(l => `<span class="label-chip">${l}</span>`).join('');
 
-                // --- アーカイブ済みタスクの表示 ---
                 if (task.isArchived) {
                     const archItem = document.createElement('div');
                     archItem.className = "archive-item";
@@ -283,10 +265,10 @@
                     return; 
                 }
 
-                // --- 現役タスクの表示 ---
                 const item = document.createElement('div');
                 item.className = `todo-item ${task.done ? 'done' : ''}`;
                 
+                // 【変更箇所】日時の右隣にクリア用ボタンを配置しました
                 item.innerHTML = `
                     <div class="todo-main">
                         <input type="checkbox" ${task.done ? 'checked' : ''} onchange="toggleTask(${task.id})">
@@ -297,6 +279,8 @@
                             <div style="margin-top: 4px; display:flex; align-items:center; flex-wrap:wrap; gap:4px;">
                                 <input type="date" class="date-edit" value="${task.date}" onchange="updateDate(${task.id}, this.value)">
                                 <input type="time" class="time-edit" value="${task.time || ''}" onchange="updateTime(${task.id}, this.value)">
+                                
+                                ${!task.isBacklog ? `<button onclick="clearDateTime(${task.id})" style="background:#ffebee; color:#c62828; border:none; border-radius:4px; padding:2px 6px; font-size:0.75em; cursor:pointer; margin-right:5px;" title="日時を消去して保留に戻す">✖️</button>` : ''}
                                 
                                 <div style="display:inline-flex; align-items:center;">
                                     ${labelHTML}
@@ -327,7 +311,6 @@
                 }
             });
 
-            // 数式表示
             document.querySelectorAll('.task-text-display, .memo-content-display, .archive-item span, .label-chip').forEach(el => {
                 el.innerHTML = el.innerHTML.replace(/\$(.*?)\$/g, (match, formula) => {
                     return katex.renderToString(formula, { throwOnError: false });
